@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package database;
+
+service DBService {
+  rpc Insert(InsertRequest) returns (InsertResponse) {}
+  rpc FindQuery(FindQueryRequest) returns (FindQueryResponse) {}
+}
+
+message InsertRequest {
+  string struct_name = 1;
+  bytes data = 2;
+}
+
+message InsertResponse { }
+
+message FindQueryRequest {
+  string struct_name = 1;
+  string field = 2;
+  string value = 3;
+}
+
+message FindQueryResponse {
+  bytes data = 1;
+}
