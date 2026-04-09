@@ -19,6 +19,30 @@ struct DatabaseService {
     data: Arc<Mutex<HashMap<String, Vec<String>>>>,
 }
 
+fn ron_value_to_string(input_value: &ron::Value) -> Option<String> {
+    match input_value.clone() {
+        ron::Value::Bool(v) => {
+            if v == true {
+                Some("true".into())
+            } else {
+                Some("false".into())
+            }
+        }
+        ron::Value::Char(v) => Some(String::from(v)),
+        ron::Value::String(v) => Some(String::from(v)),
+        ron::Value::Bytes(v) => String::from_utf8(v).ok(),
+        ron::Value::Number(v) => Some(v.into_f64().to_string()),
+        ron::Value::Option(v) => {
+            if let Some(val) = v {
+                ron_value_to_string(&val)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
 #[tonic::async_trait]
 impl DbService for DatabaseService {
     async fn insert(
@@ -66,20 +90,7 @@ impl DbService for DatabaseService {
                             if let ron::Value::String(estr) = entry_value {
                                 entry_string = Some(estr.clone());
                             } else {
-                                entry_string = match entry_value.clone() {
-                                    ron::Value::Bool(v) => {
-                                        if v == true {
-                                            Some("true".into())
-                                        } else {
-                                            Some("false".into())
-                                        }
-                                    }
-                                    ron::Value::Char(v) => Some(String::from(v)),
-                                    ron::Value::String(v) => Some(String::from(v)),
-                                    ron::Value::Bytes(v) => Some(String::from_utf8(v).unwrap()),
-                                    ron::Value::Number(v) => Some(v.into_f64().to_string()),
-                                    _ => None,
-                                }
+                                entry_string = ron_value_to_string(entry_value);
                             }
 
                             if let Some(entry_string_value) = entry_string {

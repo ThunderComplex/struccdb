@@ -1,20 +1,77 @@
 use serde::{Deserialize, Serialize};
-use tonic::Request;
+use tonic::{Request, Status};
 
-use crate::database::{
-    FindQueryRequest, FindQueryResponse, InsertRequest, InsertResponse,
-    db_service_client::DbServiceClient,
-    db_service_server::{DbService, DbServiceServer},
-};
+use crate::database::{FindQueryRequest, InsertRequest, db_service_client::DbServiceClient};
 
 pub mod database {
     tonic::include_proto!("database");
+}
+
+pub trait StructName {
+    fn get_struct_name() -> String;
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct AwesomeTest {
     id: u64,
     a_test: String,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct StruccDBConnection {}
+
+#[derive(Clone, Debug)]
+pub struct StruccDBORM {
+    client: DbServiceClient<tonic::transport::Channel>,
+}
+
+impl StruccDBConnection {
+    pub async fn connect() -> StruccDBORM {
+        StruccDBORM {
+            client: DbServiceClient::connect("http://[::1]:50051")
+                .await
+                .unwrap(),
+        }
+    }
+}
+
+impl StruccDBORM {
+    pub fn hello(&self) {
+        println!("Hello world");
+    }
+
+    pub async fn insert<T: Serialize + StructName>(
+        &mut self,
+        struct_instance: T,
+    ) -> Result<(), Status> {
+        let request = Request::new(InsertRequest {
+            struct_name: T::get_struct_name(),
+            data: ron::to_string(&struct_instance).unwrap().into_bytes(),
+        });
+
+        self.client.insert(request).await.and_then(|_| Ok(()))
+    }
+
+    pub async fn find<T: for<'a> Deserialize<'a> + StructName>(
+        &mut self,
+        field: String,
+        value: String,
+    ) -> Result<T, Status> {
+        let request = Request::new(FindQueryRequest {
+            struct_name: T::get_struct_name(),
+            field,
+            value,
+        });
+
+        let response = self.client.find_query(request).await?;
+        let inst: T = ron::from_str(
+            String::from_utf8(response.into_inner().data)
+                .unwrap()
+                .as_str(),
+        )
+        .unwrap();
+        Ok(inst)
+    }
 }
 
 #[tokio::main]
