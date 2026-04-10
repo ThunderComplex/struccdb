@@ -51,4 +51,18 @@ async fn main() {
         orm.find_one("id".into(), "23".into()).await;
 
     dbg!(&found_again);
+
+    let _ = orm
+        .update::<AwesomeTest>(
+            "a_test".into(),
+            "Hello".into(),
+            struccdb_client::UpdateOperation::Set,
+            "Very cool".into(),
+        )
+        .await;
+
+    let found_after_update: Result<Option<AwesomeTest>, FindError> =
+        orm.find_one("a_test".into(), "Very cool".into()).await;
+
+    dbg!(&found_after_update);
 }

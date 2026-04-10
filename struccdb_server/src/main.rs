@@ -7,7 +7,7 @@ use tonic::{Request, Response, Status, transport::Server};
 
 use crate::database::{
     DeleteRequest, DeleteResponse, FindQueryRequest, FindQueryResponse, InsertRequest,
-    InsertResponse,
+    InsertResponse, UpdateRequest, UpdateResponse,
     db_service_server::{DbService, DbServiceServer},
 };
 
@@ -44,6 +44,96 @@ fn ron_value_to_string(input_value: &ron::Value) -> Option<String> {
     }
 }
 
+fn string_to_number(value: String) -> Option<ron::Value> {
+    if let Ok(unsigned) = value.parse::<u64>() {
+        return Some(ron::Value::Number(ron::Number::U64(unsigned)));
+    }
+
+    if let Ok(signed) = value.parse::<i64>() {
+        return Some(ron::Value::Number(ron::Number::I64(signed)));
+    }
+
+    if let Ok(float) = value.parse::<f64>() {
+        return Some(ron::Value::Number(ron::Number::F64(ron::value::F64::new(
+            float,
+        ))));
+    }
+
+    None
+}
+
+fn map_string_to_ron_value(value: String, ron_value: &ron::Value) -> Option<ron::Value> {
+    match ron_value.clone() {
+        ron::Value::Bool(_) => {
+            if value == "true" {
+                Some(ron::Value::Bool(true))
+            } else {
+                Some(ron::Value::Bool(false))
+            }
+        }
+        ron::Value::Char(_) => Some(ron::Value::Char(value.chars().next().unwrap_or_default())),
+        ron::Value::String(_) => Some(ron::Value::String(value)),
+        ron::Value::Bytes(_) => Some(ron::Value::Bytes(value.into_bytes())),
+        ron::Value::Number(_) => string_to_number(value),
+        ron::Value::Option(_) => todo!("I can't be asked to do this now"),
+        _ => None,
+    }
+}
+
+fn serialize_struct_and_find_field(data: &String, field: String, value: String) -> bool {
+    let serialized: ron::Value = ron::from_str(data).unwrap();
+
+    if let ron::Value::Map(entry_map) = serialized {
+        if let Some(entry_value) = entry_map.get(&ron::Value::String(field)) {
+            let entry_string: Option<String>;
+            if let ron::Value::String(estr) = entry_value {
+                entry_string = Some(estr.clone());
+            } else {
+                entry_string = ron_value_to_string(entry_value);
+            }
+
+            if let Some(entry_string_value) = entry_string {
+                if entry_string_value == value {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
+}
+
+fn serialize_struct_and_update_field(
+    data: &mut String,
+    field: String,
+    search: String,
+    operation: String,
+    value: String,
+) {
+    let serialized: ron::Value = ron::from_str(data).unwrap();
+
+    if let ron::Value::Map(mut entry_map) = serialized {
+        if let Some(entry_value) = entry_map.get_mut(&ron::Value::String(field)) {
+            let entry_string: Option<String>;
+            if let ron::Value::String(estr) = entry_value {
+                entry_string = Some(estr.clone());
+            } else {
+                entry_string = ron_value_to_string(entry_value);
+            }
+
+            if let Some(entry_string_value) = entry_string {
+                if entry_string_value == search {
+                    if operation == "set" {
+                        *entry_value = map_string_to_ron_value(value, entry_value).unwrap();
+                    }
+                }
+            }
+        }
+
+        *data = ron::to_string(&entry_map).unwrap();
+    }
+}
+
 #[tonic::async_trait]
 impl DbService for DatabaseService {
     async fn insert(
@@ -70,6 +160,7 @@ impl DbService for DatabaseService {
         Ok(Response::new(response))
     }
 
+    #[allow(unstable_name_collisions)]
     async fn find_query(
         &self,
         request: Request<FindQueryRequest>,
@@ -83,25 +174,12 @@ impl DbService for DatabaseService {
                 let mut result_docs = vec![];
 
                 for entry in data.iter() {
-                    let serialized: ron::Value = ron::from_str(entry).unwrap();
-
-                    if let ron::Value::Map(entry_map) = serialized {
-                        if let Some(entry_value) =
-                            entry_map.get(&ron::Value::String(request.field.clone()))
-                        {
-                            let entry_string: Option<String>;
-                            if let ron::Value::String(estr) = entry_value {
-                                entry_string = Some(estr.clone());
-                            } else {
-                                entry_string = ron_value_to_string(entry_value);
-                            }
-
-                            if let Some(entry_string_value) = entry_string {
-                                if entry_string_value == request.value {
-                                    result_docs.push(entry.clone().into_bytes());
-                                }
-                            }
-                        }
+                    if serialize_struct_and_find_field(
+                        entry,
+                        request.field.clone(),
+                        request.value.clone(),
+                    ) {
+                        result_docs.push(entry.clone().into_bytes());
                     }
                 }
 
@@ -132,32 +210,48 @@ impl DbService for DatabaseService {
 
         if let Some(data) = db.get_mut(&request.struct_name) {
             data.retain(|entry| {
-                let serialized: ron::Value = ron::from_str(entry).unwrap();
-
-                if let ron::Value::Map(entry_map) = serialized {
-                    if let Some(entry_value) =
-                        entry_map.get(&ron::Value::String(request.field.clone()))
-                    {
-                        let entry_string: Option<String>;
-                        if let ron::Value::String(estr) = entry_value {
-                            entry_string = Some(estr.clone());
-                        } else {
-                            entry_string = ron_value_to_string(entry_value);
-                        }
-
-                        if let Some(entry_string_value) = entry_string {
-                            if entry_string_value == request.value {
-                                return false;
-                            }
-                        }
-                    }
-                }
-
-                true
+                !serialize_struct_and_find_field(
+                    entry,
+                    request.field.clone(),
+                    request.value.clone(),
+                )
             });
         }
 
         Ok(Response::new(DeleteResponse {}))
+    }
+
+    #[allow(unstable_name_collisions)]
+    async fn update(
+        &self,
+        request: Request<UpdateRequest>,
+    ) -> Result<Response<UpdateResponse>, Status> {
+        let request = request.into_inner();
+        let mut db = self.data.lock().unwrap();
+
+        if let Some(data) = db.get_mut(&request.struct_name) {
+            for entry in data.iter_mut() {
+                serialize_struct_and_update_field(
+                    entry,
+                    request.field.clone(),
+                    request.search.clone(),
+                    request.operation.clone().to_lowercase(),
+                    request.value.clone(),
+                );
+            }
+            let delim = vec![0, 0, 0, 0];
+
+            return Ok(Response::new(UpdateResponse {
+                data: data
+                    .iter()
+                    .map(|v| v.clone().into_bytes())
+                    .intersperse(delim)
+                    .flatten()
+                    .collect(),
+            }));
+        }
+
+        Err(Status::not_found("Struct not found"))
     }
 }
 

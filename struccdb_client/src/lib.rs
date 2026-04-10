@@ -1,8 +1,11 @@
+use std::fmt::Display;
+
 use serde::{Deserialize, Serialize};
 use tonic::{Request, Status};
 
 use crate::database::{
-    DeleteRequest, FindQueryRequest, InsertRequest, db_service_client::DbServiceClient,
+    DeleteRequest, FindQueryRequest, InsertRequest, UpdateRequest,
+    db_service_client::DbServiceClient,
 };
 
 pub mod database {
@@ -31,11 +34,25 @@ pub struct FindError {
 pub struct DeleteError {}
 
 #[derive(Clone, Debug, Default)]
+pub struct UpdateError {}
+
+#[derive(Clone, Debug)]
+pub enum UpdateOperation {
+    Set,
+}
+
+#[derive(Clone, Debug, Default)]
 pub struct StruccDBConnection {}
 
 #[derive(Clone, Debug)]
 pub struct StruccDBORM {
     client: DbServiceClient<tonic::transport::Channel>,
+}
+
+impl Display for UpdateOperation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 impl From<Status> for FindError {
@@ -147,6 +164,27 @@ impl StruccDBORM {
         match self.client.delete(request).await {
             Ok(_) => Ok(()),
             Err(_) => Err(DeleteError {}),
+        }
+    }
+
+    pub async fn update<T: for<'a> Deserialize<'a> + StructName>(
+        &mut self,
+        field: String,
+        search: String,
+        operation: UpdateOperation,
+        value: String,
+    ) -> Result<(), UpdateError> {
+        let request = Request::new(UpdateRequest {
+            struct_name: T::get_struct_name(),
+            field,
+            search,
+            operation: operation.to_string(),
+            value,
+        });
+
+        match self.client.update(request).await {
+            Ok(_) => Ok(()),
+            Err(_) => Err(UpdateError {}),
         }
     }
 }
