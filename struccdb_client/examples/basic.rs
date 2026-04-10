@@ -24,15 +24,24 @@ async fn main() {
         id: 57,
         a_test: "Hello".into(),
     };
+    let inst3 = AwesomeTest {
+        id: 21,
+        a_test: "Hi".into(),
+    };
 
     let mut orm = StruccDBConnection::connect().await;
     let _ = orm.insert(inst).await;
     let _ = orm.insert(inst2).await;
+    let _ = orm.insert(inst3).await;
 
-    let found: Result<Option<AwesomeTest>, FindError> = orm.find("id".into(), "23".into()).await;
+    let found: Result<Option<AwesomeTest>, FindError> =
+        orm.find_one("id".into(), "23".into()).await;
     let does_not_exist: Result<Option<AwesomeTest>, FindError> =
-        orm.find("id".into(), "123456".into()).await;
+        orm.find_one("id".into(), "123456".into()).await;
+    let duplicate: Result<Option<Vec<AwesomeTest>>, FindError> =
+        orm.find_many("a_test".into(), "Hi".into()).await;
 
     dbg!(&found);
     dbg!(&does_not_exist);
+    dbg!(&duplicate);
 }

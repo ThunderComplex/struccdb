@@ -68,35 +68,63 @@ impl StruccDBORM {
             .or_else(|_| Err(InsertError::default()))
     }
 
-    pub async fn find<T: for<'a> Deserialize<'a> + StructName>(
+    async fn find(
         &mut self,
+        struct_name: String,
         field: String,
         value: String,
-    ) -> Result<Option<T>, FindError> {
+    ) -> Result<tonic::Response<database::FindQueryResponse>, Status> {
         let request = Request::new(FindQueryRequest {
-            struct_name: T::get_struct_name(),
+            struct_name,
             field,
             value,
         });
 
-        let response = self.client.find_query(request).await;
+        self.client.find_query(request).await
+    }
+
+    fn map_find_error<T>(&self, error: Status) -> Result<Option<T>, FindError> {
+        if error.message() == "No results" || error.message() == "Struct not found" {
+            Ok(None)
+        } else {
+            Err(error.into())
+        }
+    }
+
+    pub async fn find_one<T: for<'a> Deserialize<'a> + StructName>(
+        &mut self,
+        field: String,
+        value: String,
+    ) -> Result<Option<T>, FindError> {
+        let response = self.find(T::get_struct_name(), field, value).await;
 
         match response {
             Ok(found) => {
-                let inst: T =
-                    ron::from_str(String::from_utf8(found.into_inner().data).unwrap().as_str())
-                        .unwrap();
-                Ok(Some(inst))
+                let ron_str = String::from_utf8(found.into_inner().data).unwrap();
+                Ok(Some(ron::from_str(ron_str.as_str()).unwrap()))
             }
-            Err(response_error) => {
-                if response_error.message() == "No results"
-                    || response_error.message() == "Struct not found"
-                {
-                    Ok(None)
-                } else {
-                    Err(response_error.into())
-                }
+            Err(response_error) => self.map_find_error(response_error),
+        }
+    }
+
+    pub async fn find_many<T: for<'a> Deserialize<'a> + StructName>(
+        &mut self,
+        field: String,
+        value: String,
+    ) -> Result<Option<Vec<T>>, FindError> {
+        let response = self.find(T::get_struct_name(), field, value).await;
+
+        match response {
+            Ok(found) => {
+                let ron_str = String::from_utf8(found.into_inner().data).unwrap();
+                let instances_str: Vec<&str> = ron_str.split("\0\0\0\0").collect();
+                let instances: Vec<T> = instances_str
+                    .iter()
+                    .map(|s| ron::from_str(s).unwrap())
+                    .collect();
+                Ok(Some(instances))
             }
+            Err(response_error) => self.map_find_error(response_error),
         }
     }
 }

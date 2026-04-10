@@ -1,8 +1,8 @@
+use itertools::Itertools;
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
 };
-
 use tonic::{Request, Response, Status, transport::Server};
 
 use crate::database::{
@@ -79,6 +79,8 @@ impl DbService for DatabaseService {
 
         match db.get(&request.struct_name) {
             Some(data) => {
+                let mut result_docs = vec![];
+
                 for entry in data.iter() {
                     let serialized: ron::Value = ron::from_str(entry).unwrap();
 
@@ -95,14 +97,25 @@ impl DbService for DatabaseService {
 
                             if let Some(entry_string_value) = entry_string {
                                 if entry_string_value == request.value {
-                                    return Ok(Response::new(FindQueryResponse {
-                                        data: entry.clone().into_bytes(),
-                                    }));
+                                    result_docs.push(entry.clone().into_bytes());
                                 }
                             }
                         }
                     }
                 }
+
+                if result_docs.iter().count() > 0 {
+                    let delim = vec![0, 0, 0, 0];
+                    return Ok(Response::new(FindQueryResponse {
+                        data: result_docs
+                            .iter()
+                            .intersperse(&delim)
+                            .flatten()
+                            .copied()
+                            .collect(),
+                    }));
+                }
+
                 Err(Status::not_found("No results"))
             }
             None => Err(Status::not_found("Struct not found")),

@@ -791,6 +791,7 @@ dependencies = [
 name = "struccdb_server"
 version = "0.1.0"
 dependencies = [
+ "itertools",
  "prost",
  "ron",
  "serde",
