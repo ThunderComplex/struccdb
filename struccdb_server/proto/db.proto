@@ -5,6 +5,7 @@ package database;
 service DBService {
   rpc Insert(InsertRequest) returns (InsertResponse) {}
   rpc FindQuery(FindQueryRequest) returns (FindQueryResponse) {}
+  rpc Delete(DeleteRequest) returns (DeleteResponse) {}
 }
 
 message InsertRequest {
@@ -22,4 +23,13 @@ message FindQueryRequest {
 
 message FindQueryResponse {
   bytes data = 1;
+}
+
+message DeleteRequest {
+  string struct_name = 1;
+  string field = 2;
+  string value = 3;
+}
+
+message DeleteResponse {
 }

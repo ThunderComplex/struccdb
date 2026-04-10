@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 use tonic::{Request, Status};
 
-use crate::database::{FindQueryRequest, InsertRequest, db_service_client::DbServiceClient};
+use crate::database::{
+    DeleteRequest, FindQueryRequest, InsertRequest, db_service_client::DbServiceClient,
+};
 
 pub mod database {
     tonic::include_proto!("database");
@@ -24,6 +26,9 @@ pub struct InsertError {}
 pub struct FindError {
     pub message: String,
 }
+
+#[derive(Clone, Debug, Default)]
+pub struct DeleteError {}
 
 #[derive(Clone, Debug, Default)]
 pub struct StruccDBConnection {}
@@ -125,6 +130,23 @@ impl StruccDBORM {
                 Ok(Some(instances))
             }
             Err(response_error) => self.map_find_error(response_error),
+        }
+    }
+
+    pub async fn delete<T: StructName>(
+        &mut self,
+        field: String,
+        value: String,
+    ) -> Result<(), DeleteError> {
+        let request = Request::new(DeleteRequest {
+            struct_name: T::get_struct_name(),
+            field,
+            value,
+        });
+
+        match self.client.delete(request).await {
+            Ok(_) => Ok(()),
+            Err(_) => Err(DeleteError {}),
         }
     }
 }

@@ -44,4 +44,11 @@ async fn main() {
     dbg!(&found);
     dbg!(&does_not_exist);
     dbg!(&duplicate);
+
+    let _ = orm.delete::<AwesomeTest>("id".into(), "23".into()).await;
+
+    let found_again: Result<Option<AwesomeTest>, FindError> =
+        orm.find_one("id".into(), "23".into()).await;
+
+    dbg!(&found_again);
 }

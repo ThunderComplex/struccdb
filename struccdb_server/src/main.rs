@@ -6,7 +6,8 @@ use std::{
 use tonic::{Request, Response, Status, transport::Server};
 
 use crate::database::{
-    FindQueryRequest, FindQueryResponse, InsertRequest, InsertResponse,
+    DeleteRequest, DeleteResponse, FindQueryRequest, FindQueryResponse, InsertRequest,
+    InsertResponse,
     db_service_server::{DbService, DbServiceServer},
 };
 
@@ -120,6 +121,43 @@ impl DbService for DatabaseService {
             }
             None => Err(Status::not_found("Struct not found")),
         }
+    }
+
+    async fn delete(
+        &self,
+        request: Request<DeleteRequest>,
+    ) -> Result<Response<DeleteResponse>, Status> {
+        let request = request.into_inner();
+        let mut db = self.data.lock().unwrap();
+
+        if let Some(data) = db.get_mut(&request.struct_name) {
+            data.retain(|entry| {
+                let serialized: ron::Value = ron::from_str(entry).unwrap();
+
+                if let ron::Value::Map(entry_map) = serialized {
+                    if let Some(entry_value) =
+                        entry_map.get(&ron::Value::String(request.field.clone()))
+                    {
+                        let entry_string: Option<String>;
+                        if let ron::Value::String(estr) = entry_value {
+                            entry_string = Some(estr.clone());
+                        } else {
+                            entry_string = ron_value_to_string(entry_value);
+                        }
+
+                        if let Some(entry_string_value) = entry_string {
+                            if entry_string_value == request.value {
+                                return false;
+                            }
+                        }
+                    }
+                }
+
+                true
+            });
+        }
+
+        Ok(Response::new(DeleteResponse {}))
     }
 }
 
