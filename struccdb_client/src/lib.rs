@@ -18,11 +18,27 @@ pub struct AwesomeTest {
 }
 
 #[derive(Clone, Debug, Default)]
+pub struct InsertError {}
+
+#[derive(Clone, Debug, Default)]
+pub struct FindError {
+    pub message: String,
+}
+
+#[derive(Clone, Debug, Default)]
 pub struct StruccDBConnection {}
 
 #[derive(Clone, Debug)]
 pub struct StruccDBORM {
     client: DbServiceClient<tonic::transport::Channel>,
+}
+
+impl From<Status> for FindError {
+    fn from(value: Status) -> Self {
+        Self {
+            message: value.message().into(),
+        }
+    }
 }
 
 impl StruccDBConnection {
@@ -36,41 +52,52 @@ impl StruccDBConnection {
 }
 
 impl StruccDBORM {
-    pub fn hello(&self) {
-        println!("Hello world");
-    }
-
     pub async fn insert<T: Serialize + StructName>(
         &mut self,
         struct_instance: T,
-    ) -> Result<(), Status> {
+    ) -> Result<(), InsertError> {
         let request = Request::new(InsertRequest {
             struct_name: T::get_struct_name(),
             data: ron::to_string(&struct_instance).unwrap().into_bytes(),
         });
 
-        self.client.insert(request).await.and_then(|_| Ok(()))
+        self.client
+            .insert(request)
+            .await
+            .and_then(|_| Ok(()))
+            .or_else(|_| Err(InsertError::default()))
     }
 
     pub async fn find<T: for<'a> Deserialize<'a> + StructName>(
         &mut self,
         field: String,
         value: String,
-    ) -> Result<T, Status> {
+    ) -> Result<Option<T>, FindError> {
         let request = Request::new(FindQueryRequest {
             struct_name: T::get_struct_name(),
             field,
             value,
         });
 
-        let response = self.client.find_query(request).await?;
-        let inst: T = ron::from_str(
-            String::from_utf8(response.into_inner().data)
-                .unwrap()
-                .as_str(),
-        )
-        .unwrap();
-        Ok(inst)
+        let response = self.client.find_query(request).await;
+
+        match response {
+            Ok(found) => {
+                let inst: T =
+                    ron::from_str(String::from_utf8(found.into_inner().data).unwrap().as_str())
+                        .unwrap();
+                Ok(Some(inst))
+            }
+            Err(response_error) => {
+                if response_error.message() == "No results"
+                    || response_error.message() == "Struct not found"
+                {
+                    Ok(None)
+                } else {
+                    Err(response_error.into())
+                }
+            }
+        }
     }
 }
 

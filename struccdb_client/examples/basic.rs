@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
-use struccdb_client::{StruccDBConnection, StructName};
+use struccdb_client::{FindError, StruccDBConnection, StructName};
+use tonic::Status;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct AwesomeTest {
@@ -28,8 +29,9 @@ async fn main() {
     let _ = orm.insert(inst).await;
     let _ = orm.insert(inst2).await;
 
-    let found: AwesomeTest = orm.find("id".into(), "23".into()).await.unwrap_or_default();
-    let does_not_exist: AwesomeTest = orm.find("id".into(), "123456".into()).await.unwrap();
+    let found: Result<Option<AwesomeTest>, FindError> = orm.find("id".into(), "23".into()).await;
+    let does_not_exist: Result<Option<AwesomeTest>, FindError> =
+        orm.find("id".into(), "123456".into()).await;
 
     dbg!(&found);
     dbg!(&does_not_exist);
